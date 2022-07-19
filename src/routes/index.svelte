@@ -22,6 +22,7 @@
 	let etherscanLink = '';
 
 	let result = '';
+	let isLoading = false;
 
 	const onAddArgument = () => {
 		args = [...args, newArg];
@@ -33,11 +34,11 @@
 	}
 
 	const onEncodeData = async () => {
+		isLoading = true;
 		localStorage.setItem('etherscanKey', etherscanKey);
 		localStorage.setItem('infuraKey', infuraKey);
 		localStorage.setItem('contractAddress', contractAddress);
 		localStorage.setItem('methodName', methodName);
-		
 		const getAbiAddress = `https://api.etherscan.io/api
 								?module=contract
 								&action=getabi
@@ -51,6 +52,7 @@
 		const abi: string = etherscanRes.data.result;
 		if(!abi.includes(methodName)) {
 			alert(`No method ${methodName} in the ABI!`);
+			isLoading = false;
 			return;
 		}
 		try {
@@ -58,11 +60,13 @@
 			const contract = new ethers.Contract(contractAddress, abi, provider);
 			const data = contract.interface.encodeFunctionData(methodName, args);	
 			result = data;
+			clearArgs();
 		} catch(e: any) {
 			if(e.code === 'INVALID_ARGUMENT') {
 				alert('Wrong/missing arguments!');
 			}
 		}
+		isLoading = false;
 	};
 </script>
 
@@ -81,7 +85,7 @@
 	<input placeholder="Contract address" bind:value={contractAddress} />
 	<input placeholder="Method name" bind:value={methodName} />
 
-	<input placeholder="Add argument" bind:value={newArg} on:change={onAddArgument} />
+	<input placeholder="Add argument" bind:value={newArg} />
 	<button on:click={onAddArgument}>Add argument!</button>
 	Current args:
 	<ol> 
@@ -96,7 +100,12 @@
 	{#if etherscanLink}
 		<h2>See contract on etherscan: {etherscanLink}</h2>
 	{/if}
-	<h2>{result}</h2>
+	<h2>
+	{#if isLoading}
+		Loading...
+	{:else}
+		{result}
+	{/if}
 </section>
 
 <style>
