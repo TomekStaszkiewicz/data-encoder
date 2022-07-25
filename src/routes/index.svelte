@@ -3,16 +3,22 @@
 </script>
 
 <script lang="ts">
-	import axios from 'axios';
-	import {ethers} from 'ethers';
+	import { ethers } from 'ethers';
+	import SearchResult from '$lib/SearchResult.svelte';
+	import Input from '$lib/Input.svelte';
 	import { onMount } from 'svelte';
+	import { network, getEtherscanLink, Networks } from '$lib/networks';
+	import AbiDownload from '$lib/AbiDownload.svelte';
 
 	onMount(() => {
 	 	etherscanKey = localStorage.getItem('etherscanKey') ?? '';
 	 	infuraKey = localStorage.getItem('infuraKey') ?? '';
 		contractAddress = localStorage.getItem('contractAddress') ?? '';
 		methodName = localStorage.getItem('methodName') ?? '';
+		network.set(localStorage.getItem('network') as Networks ?? Networks.Mainnet);
+		abi = localStorage.getItem('abi') ?? '';
 	});
+
 	let contractAddress = '';
 	let methodName = '';
 	let newArg = '';
@@ -20,6 +26,7 @@
 	let etherscanKey = '';
 	let infuraKey = '';
 	let etherscanLink = '';
+	let abi = '';
 
 	let result = '';
 	let isLoading = false;
@@ -33,41 +40,56 @@
 		args = [];
 	}
 
+	const getProvider = () => {
+		return new ethers.providers.InfuraProvider($network, infuraKey);
+	}
+
+	const handleError = (e: any) => {
+		if(e.code === 'INVALID_ARGUMENT') {
+				alert('Wrong/missing arguments!');
+		} else {
+			alert(e.code);
+		}
+	}
+
+	const checkAbi = () => {
+		if(!abi.includes(methodName)){
+			const e: any = new Error(`No method ${methodName} in the ABI!`); 
+			e.code = `No method ${methodName} in the ABI!`;
+			throw e;
+		}
+	}
+
+	const onEtherscanAbiReceived = (newAbi: string) => {
+		abi = newAbi;
+	}
+
 	const onEncodeData = async () => {
 		isLoading = true;
 		localStorage.setItem('etherscanKey', etherscanKey);
 		localStorage.setItem('infuraKey', infuraKey);
 		localStorage.setItem('contractAddress', contractAddress);
 		localStorage.setItem('methodName', methodName);
-		const getAbiAddress = `https://api.etherscan.io/api
-								?module=contract
-								&action=getabi
-								&address=${contractAddress}
-								&apikey=${etherscanKey}`;
-		const etherscanRes = await axios.get(getAbiAddress);
-		const provider = new ethers.providers.InfuraProvider('mainnet', infuraKey);
+		localStorage.setItem('network', $network);
+		localStorage.setItem('abi', abi);
 
-		etherscanLink = `https://etherscan.io/address/${contractAddress}`;
+		const provider = getProvider();
 
-		const abi: string = etherscanRes.data.result;
-		if(!abi.includes(methodName)) {
-			alert(`No method ${methodName} in the ABI!`);
-			isLoading = false;
-			return;
-		}
+		etherscanLink = getEtherscanLink(contractAddress);
+
 		try {
-
+			checkAbi();
 			const contract = new ethers.Contract(contractAddress, abi, provider);
 			const data = contract.interface.encodeFunctionData(methodName, args);	
 			result = data;
 			clearArgs();
 		} catch(e: any) {
-			if(e.code === 'INVALID_ARGUMENT') {
-				alert('Wrong/missing arguments!');
-			}
+			handleError(e);
+		} finally {
+			isLoading = false;
 		}
-		isLoading = false;
 	};
+	const networkVals = Object.entries(Networks);
 </script>
 
 <svelte:head>
@@ -79,36 +101,92 @@
 	<h1>
 		Data encoder
 	</h1>
-	<input placeholder="Etherscan API key" bind:value={etherscanKey} />
-	<input placeholder="Infura API key" bind:value={infuraKey} />
+	<div class="base-select">		
+		<label for="network-select">Network</label>
+		<select id="network-select" bind:value={$network}>
+			{#each networkVals as net}
+				<option value={net[1]}>{net[1]}</option>
+			{/each}
+		</select>
+		</div>
+		<div class="main-container">
+		<div class="base-container">
+			<h2 class="section-header">Method data</h2>
+			<Input placeholder="Contract address" bind:value={contractAddress} label="Contract Address" />
+			<Input placeholder="Method name" bind:value={methodName} label="Method Name" />
+			<Input placeholder="Add argument" bind:value={newArg} label="Argument" />
+			<div class="args-button-container">
+				<button on:click={onAddArgument}>Add argument!</button>
+				<button on:click={clearArgs}>Delete all arguments</button>
+			</div>
+				Current args:
+			<ol> 
+				{#each args as a}
+				<li>{a}</li>
+				{/each}
+			</ol>
+			<Input placeholder="Infura API key" bind:value={infuraKey} label="Infura Key" />
+		</div>
+		<div class="abi-container">
+			<h2 class="section-header">ABI</h2>
+			<textarea rows={10} placeholder="ABI" bind:value={abi} />
+		</div>
+	</div>
+	<AbiDownload {contractAddress} {onEtherscanAbiReceived} />
 
-	<input placeholder="Contract address" bind:value={contractAddress} />
-	<input placeholder="Method name" bind:value={methodName} />
+	<button class="encode-button" on:click={onEncodeData}>Encode!</button>
 
-	<input placeholder="Add argument" bind:value={newArg} />
-	<button on:click={onAddArgument}>Add argument!</button>
-	Current args:
-	<ol> 
-		{#each args as a}
-			<li>{a}</li>
-		{/each}
-	</ol>
-	<button on:click={clearArgs}>Delete all arguments</button>
-
-	<button on:click={onEncodeData}>Encode!</button>
-
-	{#if etherscanLink}
-		<h2>See contract on etherscan: {etherscanLink}</h2>
-	{/if}
-	<h2>
-	{#if isLoading}
-		Loading...
-	{:else}
-		{result}
-	{/if}
+	<SearchResult {result} {isLoading} {etherscanLink} />
 </section>
 
 <style>
+	
+	.main-container {
+		display: flex;
+		width: 80%;
+	}
+
+	.args-button-container {
+		display: flex;
+		margin-bottom: 5px;
+	}
+
+	.abi-container {
+		min-height: 100%;
+		width: 60%;
+	}
+
+	.abi-container textarea {
+		width: 100%;
+		height: 86%;
+	}
+	.section-header {
+		font-size: larger;
+    	font-weight: 800;
+    	color: black;
+	}
+
+	.encode-button {
+		margin: 10px;
+	}
+
+	.base-container {
+		width: 40%;
+	}
+
+	.base-select {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        width: 50%;
+		padding: 10px;
+    }
+
+	select {
+		width: 100%;
+	}
+
 	section {
 		display: flex;
 		flex-direction: column;
@@ -121,15 +199,32 @@
 		width: 100%;
 	}
 
-	input {
-		margin: 10px;
+	textarea {
 		width: 50%;
-		height: 50px;
-		border-radius: 5px;
 	}
 
 	button {
 		width: 50%;
 		height: 50px;
+	}
+
+	@media(max-width: 850px) {
+		.main-container {
+			width: 100vw;
+		}
+	}
+
+	@media(max-width: 750px) {
+		.main-container {
+			flex-direction: column;
+		}
+		.abi-container {
+			width: 100%;
+		}
+
+		.base-container {
+			width: 100%;
+
+		}
 	}
 </style>
